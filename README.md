@@ -2,6 +2,10 @@
 
 A decentralized blind auction platform built on Solana with Arcium's privacy-preserving Multi-Party Computation (MPC) technology. Players compete in psychological warfare where bid amounts remain completely private, creating intense strategic gameplay.
 
+Encrypt: Bid amounts instead of simple numbers
+Compute: Find maximum bid instead of addition
+Result: Winner and winning amount (keeping losing bids private)
+
 ## Core Concept
 
 N number players submit encrypted bids for the same NFT or digital asset. The higher bidder wins, but the losing bid or bidded amount stays completely private. This creates psychological tension where players never know how much they lost by or how much they should bid, adding a unique strategic element to auctions.
