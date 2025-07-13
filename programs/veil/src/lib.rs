@@ -1,41 +1,25 @@
 use anchor_lang::prelude::*;
 use arcium_anchor::{
-    comp_def_offset,
-    derive_cluster_pda,
-    derive_comp_def_pda,
-    derive_comp_pda,
-    derive_execpool_pda,
-    derive_mempool_pda,
-    derive_mxe_pda,
-    init_comp_def,
-    queue_computation,
-    ComputationOutputs,
-    ARCIUM_CLOCK_ACCOUNT_ADDRESS,
-    ARCIUM_STAKING_POOL_ACCOUNT_ADDRESS,
-    CLUSTER_PDA_SEED,
-    COMP_PDA_SEED,
-    COMP_DEF_PDA_SEED,
-    EXECPOOL_PDA_SEED,
-    MEMPOOL_PDA_SEED,
-    MXE_PDA_SEED,
+    comp_def_offset, derive_cluster_pda, derive_comp_def_pda, derive_comp_pda, derive_execpool_pda,
+    derive_mempool_pda, derive_mxe_pda, init_comp_def, queue_computation, ComputationOutputs,
+    ARCIUM_CLOCK_ACCOUNT_ADDRESS, ARCIUM_STAKING_POOL_ACCOUNT_ADDRESS, CLUSTER_PDA_SEED,
+    COMP_DEF_PDA_SEED, COMP_PDA_SEED, EXECPOOL_PDA_SEED, MEMPOOL_PDA_SEED, MXE_PDA_SEED,
 };
 use arcium_client::idl::arcium::{
     accounts::{
-        ClockAccount, Cluster, ComputationDefinitionAccount, PersistentMXEAccount, StakingPoolAccount
+        ClockAccount, Cluster, ComputationDefinitionAccount, PersistentMXEAccount,
+        StakingPoolAccount,
     },
     program::Arcium,
     types::Argument,
     ID_CONST as ARCIUM_PROG_ID,
 };
 use arcium_macros::{
-    arcium_callback,
-    arcium_program,
-    callback_accounts,
-    init_computation_definition_accounts,
+    arcium_callback, arcium_program, callback_accounts, init_computation_definition_accounts,
     queue_computation_accounts,
 };
 
-const COMP_DEF_OFFSET_ADD_TOGETHER: u32 = comp_def_offset("add_together");
+const COMP_DEF_OFFSET_SHARE_PATIENT_DATA: u32 = comp_def_offset("share_patient_data");
 
 declare_id!("7s7rwJCWD8vLi4ADcHRESmimPwxCMBobMJf3sXTgQj6P");
 
@@ -43,32 +27,61 @@ declare_id!("7s7rwJCWD8vLi4ADcHRESmimPwxCMBobMJf3sXTgQj6P");
 pub mod veil {
     use super::*;
 
-    pub fn init_add_together_comp_def(ctx: Context<InitAddTogetherCompDef>) -> Result<()> {
+    pub fn store_patient_data(
+        ctx: Context<StorePatientData>,
+        patient_id: [u8; 32],
+        age: [u8; 32],
+        gender: [u8; 32],
+        blood_type: [u8; 32],
+        weight: [u8; 32],
+        height: [u8; 32],
+        allergies: [[u8; 32]; 5],
+    ) -> Result<()> {
+        let patient_data = &mut ctx.accounts.patient_data;
+        patient_data.patient_id = patient_id;
+        patient_data.age = age;
+        patient_data.gender = gender;
+        patient_data.blood_type = blood_type;
+        patient_data.weight = weight;
+        patient_data.height = height;
+        patient_data.allergies = allergies;
+
+        Ok(())
+    }
+
+    pub fn init_share_patient_data_comp_def(
+        ctx: Context<InitSharePatientDataCompDef>,
+    ) -> Result<()> {
         init_comp_def(ctx.accounts, true, None, None)?;
         Ok(())
     }
 
-    pub fn add_together(
-        ctx: Context<AddTogether>,
+    pub fn share_patient_data(
+        ctx: Context<SharePatientData>,
         computation_offset: u64,
-        ciphertext_0: [u8; 32],
-        ciphertext_1: [u8; 32],
-        pub_key: [u8; 32],
+        receiver: [u8; 32],
+        receiver_nonce: u128,
+        sender_pub_key: [u8; 32],
         nonce: u128,
     ) -> Result<()> {
         let args = vec![
-            Argument::ArcisPubkey(pub_key),
+            Argument::ArcisPubkey(receiver),
+            Argument::PlaintextU128(receiver_nonce),
+            Argument::ArcisPubkey(sender_pub_key),
             Argument::PlaintextU128(nonce),
-            Argument::EncryptedU8(ciphertext_0),
-            Argument::EncryptedU8(ciphertext_1),
+            Argument::Account(
+                ctx.accounts.patient_data.key(),
+                8,
+                PatientData::INIT_SPACE as u32,
+            ),
         ];
         queue_computation(ctx.accounts, computation_offset, args, vec![], None)?;
         Ok(())
     }
 
-    #[arcium_callback(encrypted_ix = "add_together")]
-    pub fn add_together_callback(
-        ctx: Context<AddTogetherCallback>,
+    #[arcium_callback(encrypted_ix = "share_patient_data")]
+    pub fn share_patient_data_callback(
+        ctx: Context<SharePatientDataCallback>,
         output: ComputationOutputs,
     ) -> Result<()> {
         let bytes = if let ComputationOutputs::Bytes(bytes) = output {
@@ -77,18 +90,47 @@ pub mod veil {
             return Err(ErrorCode::AbortedComputation.into());
         };
 
-        emit!(SumEvent {
-            sum: bytes[48..80].try_into().unwrap(),
-            nonce: bytes[32..48].try_into().unwrap(),
+        let bytes = bytes.iter().skip(32).cloned().collect::<Vec<_>>();
+
+        emit!(ReceivedPatientDataEvent {
+            nonce: bytes[0..16].try_into().unwrap(),
+            patient_id: bytes[16..48].try_into().unwrap(),
+            age: bytes[48..80].try_into().unwrap(),
+            gender: bytes[80..112].try_into().unwrap(),
+            blood_type: bytes[112..144].try_into().unwrap(),
+            weight: bytes[144..176].try_into().unwrap(),
+            height: bytes[176..208].try_into().unwrap(),
+            allergies: [
+                bytes[208..240].try_into().unwrap(),
+                bytes[240..272].try_into().unwrap(),
+                bytes[272..304].try_into().unwrap(),
+                bytes[304..336].try_into().unwrap(),
+                bytes[336..368].try_into().unwrap(),
+            ],
         });
         Ok(())
     }
 }
 
-#[queue_computation_accounts("add_together", payer)]
+#[derive(Accounts)]
+pub struct StorePatientData<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    pub system_program: Program<'info, System>,
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + PatientData::INIT_SPACE,
+        seeds = [b"patient_data", payer.key().as_ref()],
+        bump,
+    )]
+    pub patient_data: Account<'info, PatientData>,
+}
+
+#[queue_computation_accounts("share_patient_data", payer)]
 #[derive(Accounts)]
 #[instruction(computation_offset: u64)]
-pub struct AddTogether<'info> {
+pub struct SharePatientData<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     #[account(
@@ -114,7 +156,7 @@ pub struct AddTogether<'info> {
     /// CHECK: computation_account, checked by the arcium program.
     pub computation_account: UncheckedAccount<'info>,
     #[account(
-        address = derive_comp_def_pda!(COMP_DEF_OFFSET_ADD_TOGETHER)
+        address = derive_comp_def_pda!(COMP_DEF_OFFSET_SHARE_PATIENT_DATA)
     )]
     pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
     #[account(
@@ -128,21 +170,22 @@ pub struct AddTogether<'info> {
     )]
     pub pool_account: Account<'info, StakingPoolAccount>,
     #[account(
-        address = ARCIUM_CLOCK_ACCOUNT_ADDRESS
+        address = ARCIUM_CLOCK_ACCOUNT_ADDRESS,
     )]
     pub clock_account: Account<'info, ClockAccount>,
     pub system_program: Program<'info, System>,
     pub arcium_program: Program<'info, Arcium>,
+    pub patient_data: Account<'info, PatientData>,
 }
 
-#[callback_accounts("add_together", payer)]
+#[callback_accounts("share_patient_data", payer)]
 #[derive(Accounts)]
-pub struct AddTogetherCallback<'info> {
+pub struct SharePatientDataCallback<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     pub arcium_program: Program<'info, Arcium>,
     #[account(
-        address = derive_comp_def_pda!(COMP_DEF_OFFSET_ADD_TOGETHER)
+        address = derive_comp_def_pda!(COMP_DEF_OFFSET_SHARE_PATIENT_DATA)
     )]
     pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
     #[account(address = ::anchor_lang::solana_program::sysvar::instructions::ID)]
@@ -150,9 +193,9 @@ pub struct AddTogetherCallback<'info> {
     pub instructions_sysvar: AccountInfo<'info>,
 }
 
-#[init_computation_definition_accounts("add_together", payer)]
+#[init_computation_definition_accounts("share_patient_data", payer)]
 #[derive(Accounts)]
-pub struct InitAddTogetherCompDef<'info> {
+pub struct InitSharePatientDataCompDef<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     #[account(
@@ -169,9 +212,27 @@ pub struct InitAddTogetherCompDef<'info> {
 }
 
 #[event]
-pub struct SumEvent {
-    pub sum: [u8; 32],
+pub struct ReceivedPatientDataEvent {
     pub nonce: [u8; 16],
+    pub patient_id: [u8; 32],
+    pub age: [u8; 32],
+    pub gender: [u8; 32],
+    pub blood_type: [u8; 32],
+    pub weight: [u8; 32],
+    pub height: [u8; 32],
+    pub allergies: [[u8; 32]; 5],
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct PatientData {
+    pub patient_id: [u8; 32],
+    pub age: [u8; 32],
+    pub gender: [u8; 32],
+    pub blood_type: [u8; 32],
+    pub weight: [u8; 32],
+    pub height: [u8; 32],
+    pub allergies: [[u8; 32]; 5],
 }
 
 #[error_code]

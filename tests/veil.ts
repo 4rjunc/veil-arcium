@@ -1,7 +1,6 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
-import { Veil } from "../target/types/veil";
 import { randomBytes } from "crypto";
 import {
   awaitComputationFinalization,
@@ -23,8 +22,9 @@ import { x25519 } from '@noble/curves/ed25519';
 import * as fs from "fs";
 import * as os from "os";
 import { expect } from "chai";
+import { Veil } from "../target/types/veil";
 
-describe("Veil", () => {
+describe("ShareMedicalRecords", () => {
   // Configure the client to use the local cluster.
   anchor.setProvider(anchor.AnchorProvider.env());
   const program = anchor.workspace
@@ -32,9 +32,7 @@ describe("Veil", () => {
   const provider = anchor.getProvider();
 
   type Event = anchor.IdlEvents<(typeof program)["idl"]>;
-  const awaitEvent = async <E extends keyof Event>(
-    eventName: E
-  ): Promise<Event[E]> => {
+  const awaitEvent = async <E extends keyof Event>(eventName: E) => {
     let listenerId: number;
     const event = await new Promise<Event[E]>((res) => {
       listenerId = program.addEventListener(eventName, (event) => {
@@ -48,41 +46,91 @@ describe("Veil", () => {
 
   const arciumEnv = getArciumEnv();
 
-  it("Is initialized!", async () => {
+  it("can store and share patient data confidentially!", async () => {
     const owner = readKpJson(`${os.homedir()}/.config/solana/id.json`);
 
-    console.log("Initializing add together computation definition");
-    const initATSig = await initAddTogetherCompDef(program, owner, false, false);
+    console.log("Initializing share patient data computation definition");
+    const initSPDSig = await initSharePatientDataCompDef(program, owner, false);
     console.log(
-      "Add together computation definition initialized with signature",
-      initATSig
+      "Share patient data computation definition initialized with signature",
+      initSPDSig
     );
 
-    const privateKey = x25519.utils.randomPrivateKey();
-    const publicKey = x25519.getPublicKey(privateKey);
+    const senderPrivateKey = x25519.utils.randomPrivateKey();
+    const senderPublicKey = x25519.getPublicKey(senderPrivateKey);
     const mxePublicKey = new Uint8Array([
       34, 56, 246, 3, 165, 122, 74, 68, 14, 81, 107, 73, 129, 145, 196, 4, 98,
       253, 120, 15, 235, 108, 37, 198, 124, 111, 38, 1, 210, 143, 72, 87,
     ]);
-    const sharedSecret = x25519.getSharedSecret(privateKey, mxePublicKey);
+    const sharedSecret = x25519.getSharedSecret(senderPrivateKey, mxePublicKey);
     const cipher = new RescueCipher(sharedSecret);
 
-    const val1 = BigInt(1);
-    const val2 = BigInt(2);
-    const plaintext = [val1, val2];
+    const patientId = BigInt(420);
+    const age = BigInt(69);
+    const gender = BigInt(true);
+    const bloodType = BigInt(1); // A+
+    const weight = BigInt(70);
+    const height = BigInt(170);
+    // allergies are [peanuts, latex, bees, wasps, cats]
+    const allergies = [
+      BigInt(false),
+      BigInt(true),
+      BigInt(false),
+      BigInt(true),
+      BigInt(false),
+    ];
+
+    const patientData = [
+      patientId,
+      age,
+      gender,
+      bloodType,
+      weight,
+      height,
+      ...allergies,
+    ];
+
+    console.log(`patientData: ${patientData}`);
+
 
     const nonce = randomBytes(16);
-    const ciphertext = cipher.encrypt(plaintext, nonce);
+    const ciphertext = cipher.encrypt(patientData, nonce);
 
-    const sumEventPromise = awaitEvent("sumEvent");
+    const storeSig = await program.methods
+      .storePatientData(
+        ciphertext[0],
+        ciphertext[1],
+        ciphertext[2],
+        ciphertext[3],
+        ciphertext[4],
+        ciphertext[5],
+        [
+          ciphertext[6],
+          ciphertext[7],
+          ciphertext[8],
+          ciphertext[9],
+          ciphertext[10],
+        ]
+      )
+      .rpc({ commitment: "confirmed" });
+    console.log("Store sig is ", storeSig);
+
+    const receiverSecretKey = x25519.utils.randomPrivateKey();
+    const receiverPubKey = x25519.getPublicKey(receiverSecretKey);
+    const receiverNonce = randomBytes(16);
+
+    const receivedPatientDataEventPromise = awaitEvent(
+      "receivedPatientDataEvent"
+    );
+
     const computationOffset = new anchor.BN(randomBytes(8), "hex");
 
     const queueSig = await program.methods
-      .addTogether(
+      .sharePatientData(
         computationOffset,
-        Array.from(ciphertext[0]),
-        Array.from(ciphertext[1]),
-        Array.from(publicKey),
+        Array.from(receiverPubKey),
+        new anchor.BN(deserializeLE(receiverNonce).toString()),
+        Array.from(senderPublicKey),
         new anchor.BN(deserializeLE(nonce).toString())
       )
       .accountsPartial({
@@ -96,10 +144,14 @@ describe("Veil", () => {
         executingPool: getExecutingPoolAccAddress(program.programId),
         compDefAccount: getCompDefAccAddress(
           program.programId,
-          Buffer.from(getCompDefAccOffset("add_together")).readUInt32LE()
+          Buffer.from(getCompDefAccOffset("share_patient_data")).readUInt32LE()
         ),
+        patientData: PublicKey.findProgramAddressSync(
+          [Buffer.from("patient_data"), owner.publicKey.toBuffer()],
+          program.programId
+        )[0],
       })
-      .rpc({ skipPreflight: true, commitment: "confirmed" });
+      .rpc({ commitment: "confirmed" });
     console.log("Queue sig is ", queueSig);
 
     const finalizeSig = await awaitComputationFinalization(
@@ -110,21 +162,59 @@ describe("Veil", () => {
     );
     console.log("Finalize sig is ", finalizeSig);
 
-    const sumEvent = await sumEventPromise;
-    const decrypted = cipher.decrypt([sumEvent.sum], sumEvent.nonce)[0];
-    expect(decrypted).to.equal(val1 + val2);
+    const receiverSharedSecret = x25519.getSharedSecret(
+      receiverSecretKey,
+      mxePublicKey
+    );
+    const receiverCipher = new RescueCipher(receiverSharedSecret);
+
+    const receivedPatientDataEvent = await receivedPatientDataEventPromise;
+
+    // Decrypt all patient data fields
+    const decryptedFields = receiverCipher.decrypt(
+      [
+        receivedPatientDataEvent.patientId,
+        receivedPatientDataEvent.age,
+        receivedPatientDataEvent.gender,
+        receivedPatientDataEvent.bloodType,
+        receivedPatientDataEvent.weight,
+        receivedPatientDataEvent.height,
+        ...receivedPatientDataEvent.allergies,
+      ],
+      new Uint8Array(receivedPatientDataEvent.nonce)
+    );
+
+    // Verify all fields match the original data
+    expect(decryptedFields[0]).to.equal(patientData[0], "Patient ID mismatch");
+    expect(decryptedFields[1]).to.equal(patientData[1], "Age mismatch");
+    expect(decryptedFields[2]).to.equal(patientData[2], "Gender mismatch");
+    expect(decryptedFields[3]).to.equal(patientData[3], "Blood type mismatch");
+    expect(decryptedFields[4]).to.equal(patientData[4], "Weight mismatch");
+    expect(decryptedFields[5]).to.equal(patientData[5], "Height mismatch");
+
+    console.log("decryptedFields: ");
+
+    // Verify allergies
+    for (let i = 0; i < 5; i++) {
+      console.log(decryptedFields[i])
+      expect(decryptedFields[6 + i]).to.equal(
+        patientData[6 + i],
+        `Allergy ${i} mismatch`
+      );
+    }
+
+    console.log("All patient data fields successfully decrypted and verified");
   });
 
-  async function initAddTogetherCompDef(
-    program: Program<Veil>,
+  async function initSharePatientDataCompDef(
+    program: Program<ShareMedicalRecords>,
     owner: anchor.web3.Keypair,
-    uploadRawCircuit: boolean,
-    offchainSource: boolean
+    uploadRawCircuit: boolean
   ): Promise<string> {
     const baseSeedCompDefAcc = getArciumAccountBaseSeed(
       "ComputationDefinitionAccount"
     );
-    const offset = getCompDefAccOffset("add_together");
+    const offset = getCompDefAccOffset("share_patient_data");
 
     const compDefPDA = PublicKey.findProgramAddressSync(
       [baseSeedCompDefAcc, program.programId.toBuffer(), offset],
@@ -134,7 +224,7 @@ describe("Veil", () => {
     console.log("Comp def pda is ", compDefPDA);
 
     const sig = await program.methods
-      .initAddTogetherCompDef()
+      .initSharePatientDataCompDef()
       .accounts({
         compDefAccount: compDefPDA,
         payer: owner.publicKey,
@@ -144,19 +234,22 @@ describe("Veil", () => {
       .rpc({
         commitment: "confirmed",
       });
-    console.log("Init add together computation definition transaction", sig);
+    console.log(
+      "Init share patient data computation definition transaction",
+      sig
+    );
 
     if (uploadRawCircuit) {
-      const rawCircuit = fs.readFileSync("build/add_together.arcis");
+      const rawCircuit = fs.readFileSync("build/share_patient_data.arcis");
 
       await uploadCircuit(
         provider as anchor.AnchorProvider,
-        "add_together",
+        "share_patient_data",
         program.programId,
         rawCircuit,
         true
       );
-    } else if (!offchainSource) {
+    } else {
       const finalizeTx = await buildFinalizeCompDefTx(
         provider as anchor.AnchorProvider,
         Buffer.from(offset).readUInt32LE(),

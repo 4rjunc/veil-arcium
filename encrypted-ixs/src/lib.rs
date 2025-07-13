@@ -4,15 +4,22 @@ use arcis_imports::*;
 mod circuits {
     use arcis_imports::*;
 
-    pub struct InputValues {
-        v1: u8,
-        v2: u8,
+    pub struct PatientData {
+        pub patient_id: u64,
+        pub age: u8,
+        pub gender: bool,
+        pub blood_type: u8,
+        pub weight: u16,
+        pub height: u16,
+        pub allergies: [bool; 5],
     }
 
     #[instruction]
-    pub fn add_together(input_ctxt: Enc<Shared, InputValues>) -> Enc<Shared, u16> {
+    pub fn share_patient_data(
+        receiver: Shared,
+        input_ctxt: Enc<Shared, PatientData>,
+    ) -> Enc<Shared, PatientData> {
         let input = input_ctxt.to_arcis();
-        let sum = input.v1 as u16 + input.v2 as u16;
-        input_ctxt.owner.from_arcis(sum)
+        receiver.from_arcis(input)
     }
 }
