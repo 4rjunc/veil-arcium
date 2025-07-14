@@ -29,22 +29,12 @@ pub mod veil {
 
     pub fn store_patient_data(
         ctx: Context<StorePatientData>,
-        patient_id: [u8; 32],
-        age: [u8; 32],
-        gender: [u8; 32],
-        blood_type: [u8; 32],
-        weight: [u8; 32],
-        height: [u8; 32],
-        allergies: [[u8; 32]; 5],
+        bidder: [u8; 32],
+        bid: [u8; 32],
     ) -> Result<()> {
-        let patient_data = &mut ctx.accounts.patient_data;
-        patient_data.patient_id = patient_id;
-        patient_data.age = age;
-        patient_data.gender = gender;
-        patient_data.blood_type = blood_type;
-        patient_data.weight = weight;
-        patient_data.height = height;
-        patient_data.allergies = allergies;
+        let patient_data = &mut ctx.accounts.bidder_data;
+        patient_data.bidder = bidder;
+        patient_data.bid = bid;
 
         Ok(())
     }
@@ -72,7 +62,7 @@ pub mod veil {
             Argument::Account(
                 ctx.accounts.patient_data.key(),
                 8,
-                PatientData::INIT_SPACE as u32,
+                BidderData::INIT_SPACE as u32,
             ),
         ];
         queue_computation(ctx.accounts, computation_offset, args, vec![], None)?;
@@ -92,21 +82,10 @@ pub mod veil {
 
         let bytes = bytes.iter().skip(32).cloned().collect::<Vec<_>>();
 
-        emit!(ReceivedPatientDataEvent {
+        emit!(BidDataEvent {
             nonce: bytes[0..16].try_into().unwrap(),
-            patient_id: bytes[16..48].try_into().unwrap(),
-            age: bytes[48..80].try_into().unwrap(),
-            gender: bytes[80..112].try_into().unwrap(),
-            blood_type: bytes[112..144].try_into().unwrap(),
-            weight: bytes[144..176].try_into().unwrap(),
-            height: bytes[176..208].try_into().unwrap(),
-            allergies: [
-                bytes[208..240].try_into().unwrap(),
-                bytes[240..272].try_into().unwrap(),
-                bytes[272..304].try_into().unwrap(),
-                bytes[304..336].try_into().unwrap(),
-                bytes[336..368].try_into().unwrap(),
-            ],
+            bidder: bytes[16..48].try_into().unwrap(),
+            bid: bytes[48..80].try_into().unwrap(),
         });
         Ok(())
     }
@@ -120,11 +99,11 @@ pub struct StorePatientData<'info> {
     #[account(
         init,
         payer = payer,
-        space = 8 + PatientData::INIT_SPACE,
+        space = 8 + BidderData::INIT_SPACE,
         seeds = [b"patient_data", payer.key().as_ref()],
         bump,
     )]
-    pub patient_data: Account<'info, PatientData>,
+    pub bidder_data: Account<'info, BidderData>,
 }
 
 #[queue_computation_accounts("share_patient_data", payer)]
@@ -175,7 +154,7 @@ pub struct SharePatientData<'info> {
     pub clock_account: Account<'info, ClockAccount>,
     pub system_program: Program<'info, System>,
     pub arcium_program: Program<'info, Arcium>,
-    pub patient_data: Account<'info, PatientData>,
+    pub patient_data: Account<'info, BidderData>,
 }
 
 #[callback_accounts("share_patient_data", payer)]
@@ -212,27 +191,17 @@ pub struct InitSharePatientDataCompDef<'info> {
 }
 
 #[event]
-pub struct ReceivedPatientDataEvent {
+pub struct BidDataEvent {
     pub nonce: [u8; 16],
-    pub patient_id: [u8; 32],
-    pub age: [u8; 32],
-    pub gender: [u8; 32],
-    pub blood_type: [u8; 32],
-    pub weight: [u8; 32],
-    pub height: [u8; 32],
-    pub allergies: [[u8; 32]; 5],
+    pub bidder: [u8; 32],
+    pub bid: [u8; 32],
 }
 
 #[account]
 #[derive(InitSpace)]
-pub struct PatientData {
-    pub patient_id: [u8; 32],
-    pub age: [u8; 32],
-    pub gender: [u8; 32],
-    pub blood_type: [u8; 32],
-    pub weight: [u8; 32],
-    pub height: [u8; 32],
-    pub allergies: [[u8; 32]; 5],
+pub struct BidderData {
+    pub bidder: [u8; 32],
+    pub bid: [u8; 32],
 }
 
 #[error_code]
