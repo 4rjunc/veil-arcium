@@ -35,7 +35,6 @@ pub mod veil {
         let patient_data = &mut ctx.accounts.bidder_data;
         patient_data.bidder = bidder;
         patient_data.bid = bid;
-
         Ok(())
     }
 
@@ -90,14 +89,13 @@ pub mod veil {
         Ok(())
     }
 }
-
 #[derive(Accounts)]
 pub struct StorePatientData<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     pub system_program: Program<'info, System>,
     #[account(
-        init,
+        init_if_needed,
         payer = payer,
         space = 8 + BidderData::INIT_SPACE,
         seeds = [b"patient_data", payer.key().as_ref()],
