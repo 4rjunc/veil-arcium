@@ -19,7 +19,7 @@ use arcium_macros::{
     queue_computation_accounts,
 };
 
-const COMP_DEF_OFFSET_SHARE_PATIENT_DATA: u32 = comp_def_offset("share_patient_data");
+const COMP_DEF_OFFSET_SHARE_BID_DATA: u32 = comp_def_offset("share_bid_data");
 
 declare_id!("7s7rwJCWD8vLi4ADcHRESmimPwxCMBobMJf3sXTgQj6P");
 
@@ -27,26 +27,24 @@ declare_id!("7s7rwJCWD8vLi4ADcHRESmimPwxCMBobMJf3sXTgQj6P");
 pub mod veil {
     use super::*;
 
-    pub fn store_patient_data(
-        ctx: Context<StorePatientData>,
+    pub fn store_bid_data(
+        ctx: Context<StoreBidData>,
         bidder: [u8; 32],
         bid: [u8; 32],
     ) -> Result<()> {
-        let patient_data = &mut ctx.accounts.bidder_data;
-        patient_data.bidder = bidder;
-        patient_data.bid = bid;
+        let bid_data = &mut ctx.accounts.bidder_data;
+        bid_data.bidder = bidder;
+        bid_data.bid = bid;
         Ok(())
     }
 
-    pub fn init_share_patient_data_comp_def(
-        ctx: Context<InitSharePatientDataCompDef>,
-    ) -> Result<()> {
+    pub fn init_share_bid_data_comp_def(ctx: Context<InitShareBidDataCompDef>) -> Result<()> {
         init_comp_def(ctx.accounts, true, None, None)?;
         Ok(())
     }
 
-    pub fn share_patient_data(
-        ctx: Context<SharePatientData>,
+    pub fn share_bid_data(
+        ctx: Context<ShareBidData>,
         computation_offset: u64,
         receiver: [u8; 32],
         receiver_nonce: u128,
@@ -59,7 +57,7 @@ pub mod veil {
             Argument::ArcisPubkey(sender_pub_key),
             Argument::PlaintextU128(nonce),
             Argument::Account(
-                ctx.accounts.patient_data.key(),
+                ctx.accounts.bid_data.key(),
                 8,
                 BidderData::INIT_SPACE as u32,
             ),
@@ -68,9 +66,9 @@ pub mod veil {
         Ok(())
     }
 
-    #[arcium_callback(encrypted_ix = "share_patient_data")]
-    pub fn share_patient_data_callback(
-        ctx: Context<SharePatientDataCallback>,
+    #[arcium_callback(encrypted_ix = "share_bid_data")]
+    pub fn share_bid_data_callback(
+        ctx: Context<ShareBidDataCallback>,
         output: ComputationOutputs,
     ) -> Result<()> {
         let bytes = if let ComputationOutputs::Bytes(bytes) = output {
@@ -90,7 +88,7 @@ pub mod veil {
     }
 }
 #[derive(Accounts)]
-pub struct StorePatientData<'info> {
+pub struct StoreBidData<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     pub system_program: Program<'info, System>,
@@ -98,16 +96,16 @@ pub struct StorePatientData<'info> {
         init_if_needed,
         payer = payer,
         space = 8 + BidderData::INIT_SPACE,
-        seeds = [b"patient_data", payer.key().as_ref()],
+        seeds = [b"bid_data", payer.key().as_ref()],
         bump,
     )]
     pub bidder_data: Account<'info, BidderData>,
 }
 
-#[queue_computation_accounts("share_patient_data", payer)]
+#[queue_computation_accounts("share_bid_data", payer)]
 #[derive(Accounts)]
 #[instruction(computation_offset: u64)]
-pub struct SharePatientData<'info> {
+pub struct ShareBidData<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     #[account(
@@ -133,7 +131,7 @@ pub struct SharePatientData<'info> {
     /// CHECK: computation_account, checked by the arcium program.
     pub computation_account: UncheckedAccount<'info>,
     #[account(
-        address = derive_comp_def_pda!(COMP_DEF_OFFSET_SHARE_PATIENT_DATA)
+        address = derive_comp_def_pda!(COMP_DEF_OFFSET_SHARE_BID_DATA)
     )]
     pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
     #[account(
@@ -152,17 +150,17 @@ pub struct SharePatientData<'info> {
     pub clock_account: Account<'info, ClockAccount>,
     pub system_program: Program<'info, System>,
     pub arcium_program: Program<'info, Arcium>,
-    pub patient_data: Account<'info, BidderData>,
+    pub bid_data: Account<'info, BidderData>,
 }
 
-#[callback_accounts("share_patient_data", payer)]
+#[callback_accounts("share_bid_data", payer)]
 #[derive(Accounts)]
-pub struct SharePatientDataCallback<'info> {
+pub struct ShareBidDataCallback<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     pub arcium_program: Program<'info, Arcium>,
     #[account(
-        address = derive_comp_def_pda!(COMP_DEF_OFFSET_SHARE_PATIENT_DATA)
+        address = derive_comp_def_pda!(COMP_DEF_OFFSET_SHARE_BID_DATA)
     )]
     pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
     #[account(address = ::anchor_lang::solana_program::sysvar::instructions::ID)]
@@ -170,9 +168,9 @@ pub struct SharePatientDataCallback<'info> {
     pub instructions_sysvar: AccountInfo<'info>,
 }
 
-#[init_computation_definition_accounts("share_patient_data", payer)]
+#[init_computation_definition_accounts("share_bid_data", payer)]
 #[derive(Accounts)]
-pub struct InitSharePatientDataCompDef<'info> {
+pub struct InitShareBidDataCompDef<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     #[account(

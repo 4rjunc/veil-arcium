@@ -24,7 +24,7 @@ import * as os from "os";
 import { expect } from "chai";
 import { Veil } from "../target/types/veil";
 
-describe("ShareMedicalRecords", () => {
+describe("Blind Bidding", () => {
   // Configure the client to use the local cluster.
   anchor.setProvider(anchor.AnchorProvider.env());
   const program = anchor.workspace
@@ -90,12 +90,11 @@ describe("ShareMedicalRecords", () => {
     arciumEnv: { arciumClusterPubkey: anchor.web3.PublicKey };
     mxePublicKey: Uint8Array;
   }) {
-    console.log("handleBidFlow2")
     const nonce = randomBytes(16);
     const ciphertext = cipher.encrypt(bidData, nonce);
 
     const storeSig = await program.methods
-      .storePatientData(ciphertext[0], ciphertext[1])
+      .storeBidData(ciphertext[0], ciphertext[1])
       .accounts({
         payer: owner.publicKey,
       })
@@ -113,7 +112,7 @@ describe("ShareMedicalRecords", () => {
     const computationOffset = new anchor.BN(randomBytes(8), "hex");
 
     const queueSig = await program.methods
-      .sharePatientData(
+      .shareBidData(
         computationOffset,
         Array.from(receiverPubKey),
         new anchor.BN(deserializeLE(receiverNonce).toString()),
@@ -128,10 +127,10 @@ describe("ShareMedicalRecords", () => {
         executingPool: getExecutingPoolAccAddress(program.programId),
         compDefAccount: getCompDefAccAddress(
           program.programId,
-          Buffer.from(getCompDefAccOffset("share_patient_data")).readUInt32LE()
+          Buffer.from(getCompDefAccOffset("share_bid_data")).readUInt32LE()
         ),
-        patientData: PublicKey.findProgramAddressSync(
-          [Buffer.from("patient_data"), owner.publicKey.toBuffer()],
+        bidData: PublicKey.findProgramAddressSync(
+          [Buffer.from("bid_data"), owner.publicKey.toBuffer()],
           program.programId
         )[0],
       })
@@ -171,7 +170,7 @@ describe("ShareMedicalRecords", () => {
     console.log("All bid data fields successfully decrypted and verified");
   }
 
-  it("can store and share patient data confidentially!", async () => {
+  it("SECRET BIDDING ", async () => {
     const owner = readKpJson(`${os.homedir()}/.config/solana/id.json`);
     const owner2 = readKpJson(`${os.homedir()}/.config/solana/id_dev.json`);
 
@@ -179,10 +178,10 @@ describe("ShareMedicalRecords", () => {
     await airdropToWallets(provider.connection, owner, owner2);
 
     // Initialize computation definition ONLY ONCE
-    console.log("Initializing share patient data computation definition");
-    const initSPDSig = await initSharePatientDataCompDef(program, owner, false);
+    console.log("Initializing share bid data computation definition");
+    const initSPDSig = await initShareBidDataCompDef(program, owner, false);
     console.log(
-      "Share patient data computation definition initialized with signature",
+      "Share bid data computation definition initialized with signature",
       initSPDSig
     );
 
@@ -241,7 +240,7 @@ describe("ShareMedicalRecords", () => {
     });
   });
 
-  async function initSharePatientDataCompDef(
+  async function initShareBidDataCompDef(
     program: Program<Veil>,
     owner: anchor.web3.Keypair,
     uploadRawCircuit: boolean
@@ -249,7 +248,7 @@ describe("ShareMedicalRecords", () => {
     const baseSeedCompDefAcc = getArciumAccountBaseSeed(
       "ComputationDefinitionAccount"
     );
-    const offset = getCompDefAccOffset("share_patient_data");
+    const offset = getCompDefAccOffset("share_bid_data");
 
     const compDefPDA = PublicKey.findProgramAddressSync(
       [baseSeedCompDefAcc, program.programId.toBuffer(), offset],
@@ -259,7 +258,7 @@ describe("ShareMedicalRecords", () => {
     console.log("Comp def pda is ", compDefPDA);
 
     const sig = await program.methods
-      .initSharePatientDataCompDef()
+      .initShareBidDataCompDef()
       .accounts({
         compDefAccount: compDefPDA,
         payer: owner.publicKey,
@@ -275,11 +274,11 @@ describe("ShareMedicalRecords", () => {
     );
 
     if (uploadRawCircuit) {
-      const rawCircuit = fs.readFileSync("build/share_patient_data.arcis");
+      const rawCircuit = fs.readFileSync("build/share_bid_data.arcis");
 
       await uploadCircuit(
         provider as anchor.AnchorProvider,
-        "share_patient_data",
+        "share_bid_data",
         program.programId,
         rawCircuit,
         true

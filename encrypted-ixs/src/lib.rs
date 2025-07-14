@@ -9,8 +9,12 @@ mod circuits {
         pub bid: u8, // change to u64
     }
 
+    pub struct BigBidData {
+        pub big_bid: u64,
+    }
+
     #[instruction]
-    pub fn share_patient_data(
+    pub fn share_bid_data(
         receiver: Shared,
         input_ctxt: Enc<Shared, BidData>,
     ) -> Enc<Shared, BidData> {
